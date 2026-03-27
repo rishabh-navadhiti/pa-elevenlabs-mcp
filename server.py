@@ -15,6 +15,7 @@ import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 MCP_TOKEN = os.environ.get("MCP_TOKEN", "")
@@ -31,7 +32,13 @@ _auth_codes: dict[str, str] = {}
 # MCP server
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("elevenlabs-mcp")
+mcp = FastMCP(
+    "elevenlabs-mcp",
+    transport_security=TransportSecuritySettings(
+        allowed_hosts=["pa.v2.ndproject.dev", "localhost", "127.0.0.1"],
+        allowed_origins=["https://pa.v2.ndproject.dev", "http://localhost:8000"],
+    ),
+)
 
 
 @mcp.tool()
