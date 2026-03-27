@@ -173,9 +173,11 @@ async def oauth_metadata(request: Request):
         "issuer": base,
         "authorization_endpoint": f"{base}/authorize",
         "token_endpoint": f"{base}/token",
+        "registration_endpoint": f"{base}/register",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
     }
 
 
@@ -187,6 +189,19 @@ async def oauth_protected_resource(request: Request):
         "resource": f"{base}/mcp",
         "authorization_servers": [base],
     }
+
+
+@app.post("/register")
+async def register_client(request: Request):
+    """Dynamic client registration (RFC 7591) — auto-approve all clients."""
+    client_id = secrets.token_urlsafe(16)
+    return JSONResponse({
+        "client_id": client_id,
+        "client_id_issued_at": 0,
+        "token_endpoint_auth_method": "none",
+        "grant_types": ["authorization_code"],
+        "response_types": ["code"],
+    }, status_code=201)
 
 
 @app.get("/authorize")
