@@ -277,7 +277,7 @@ async def health():
 
 
 # Mount MCP at /mcp
-app.mount("/mcp", mcp.streamable_http_app())
+app.mount("/", mcp.streamable_http_app())
 
 
 if __name__ == "__main__":
