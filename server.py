@@ -175,7 +175,7 @@ async def oauth_metadata(request: Request):
         "token_endpoint": f"{base}/token",
         "registration_endpoint": f"{base}/register",
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code"],
+        "grant_types_supported": ["authorization_code", "client_credentials"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["none"],
     }
@@ -199,7 +199,7 @@ async def register_client(request: Request):
         "client_id": client_id,
         "client_id_issued_at": 0,
         "token_endpoint_auth_method": "none",
-        "grant_types": ["authorization_code"],
+        "grant_types": ["authorization_code", "client_credentials"],
         "response_types": ["code"],
     }, status_code=201)
 
@@ -237,19 +237,24 @@ async def token(request: Request):
     code = body.get("code", "")
     grant_type = body.get("grant_type", "")
 
-    if grant_type != "authorization_code":
-        return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
+    if grant_type == "client_credentials":
+        return {
+            "access_token": MCP_TOKEN,
+            "token_type": "bearer",
+            "expires_in": 86400,
+        }
 
-    if code not in _auth_codes:
-        return JSONResponse({"error": "invalid_grant"}, status_code=400)
+    if grant_type == "authorization_code":
+        if code not in _auth_codes:
+            return JSONResponse({"error": "invalid_grant"}, status_code=400)
+        del _auth_codes[code]
+        return {
+            "access_token": MCP_TOKEN,
+            "token_type": "bearer",
+            "expires_in": 86400,
+        }
 
-    del _auth_codes[code]
-
-    return {
-        "access_token": MCP_TOKEN,
-        "token_type": "bearer",
-        "expires_in": 86400,
-    }
+    return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
 
 
 # -- Standard endpoints ------------------------------------------------------
