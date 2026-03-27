@@ -6,16 +6,23 @@ Exposes a /mcp endpoint (MCP streamable HTTP transport) and /health.
 
 Environment variables:
     ELEVENLABS_API_KEY  — required, your ElevenLabs API key
+    MCP_TOKEN           — shared secret; clients must obtain via OAuth before calling /mcp
 """
 
 import os
+import secrets
 import requests
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from mcp.server.fastmcp import FastMCP
 
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+MCP_TOKEN = os.environ.get("MCP_TOKEN", "")
 ELEVEN_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
 ELEVEN_MODELS_URL = "https://api.elevenlabs.io/v1/models"
+
+# In-memory one-time-use auth codes
+_auth_codes: dict[str, str] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +73,6 @@ def speech_to_text(
     response.raise_for_status()
     data = response.json()
 
-    # Build speaker segments from the words array
     words = data.get("words", [])
     speaker_map: dict[str, str] = {}
     speaker_count = 0
@@ -95,7 +101,6 @@ def speech_to_text(
     if current_text and current_speaker:
         segments.append({"speaker": current_speaker, "text": current_text.strip()})
 
-    # Format to markdown
     lines = ["## Transcript", ""]
     for seg in segments:
         lines.append(f"{seg['speaker']}: {seg['text']}")
@@ -131,6 +136,83 @@ def list_models() -> list:
 
 app = FastAPI(title="ElevenLabs MCP Server")
 
+
+# -- Auth middleware: protect /mcp with Bearer token -------------------------
+
+@app.middleware("http")
+async def bearer_auth(request: Request, call_next):
+    if request.url.path.startswith("/mcp"):
+        if MCP_TOKEN:
+            auth = request.headers.get("Authorization", "")
+            if not auth.startswith("Bearer ") or auth[7:] != MCP_TOKEN:
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return await call_next(request)
+
+
+# -- OAuth 2.0 endpoints -----------------------------------------------------
+
+@app.get("/.well-known/oauth-authorization-server")
+async def oauth_metadata(request: Request):
+    base = str(request.base_url).rstrip("/")
+    return {
+        "issuer": base,
+        "authorization_endpoint": f"{base}/authorize",
+        "token_endpoint": f"{base}/token",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code"],
+        "code_challenge_methods_supported": ["S256"],
+    }
+
+
+@app.get("/authorize")
+@app.post("/authorize")
+async def authorize(request: Request):
+    params = dict(request.query_params)
+    redirect_uri = params.get("redirect_uri", "")
+    state = params.get("state", "")
+
+    if not redirect_uri:
+        return JSONResponse({"error": "missing redirect_uri"}, status_code=400)
+
+    code = secrets.token_urlsafe(24)
+    _auth_codes[code] = state
+
+    sep = "&" if "?" in redirect_uri else "?"
+    return RedirectResponse(
+        f"{redirect_uri}{sep}code={code}&state={state}",
+        status_code=302,
+    )
+
+
+@app.post("/token")
+async def token(request: Request):
+    # Accept both JSON and form-encoded bodies
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+    else:
+        form = await request.form()
+        body = dict(form)
+
+    code = body.get("code", "")
+    grant_type = body.get("grant_type", "")
+
+    if grant_type != "authorization_code":
+        return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
+
+    if code not in _auth_codes:
+        return JSONResponse({"error": "invalid_grant"}, status_code=400)
+
+    del _auth_codes[code]
+
+    return {
+        "access_token": MCP_TOKEN,
+        "token_type": "bearer",
+        "expires_in": 86400,
+    }
+
+
+# -- Standard endpoints ------------------------------------------------------
 
 @app.get("/health")
 async def health():
