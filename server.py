@@ -10,7 +10,6 @@ Environment variables:
 
 import os
 import requests
-from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
 
@@ -130,13 +129,7 @@ def list_models() -> list:
 # FastAPI app
 # ---------------------------------------------------------------------------
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with mcp.server.run_lifespan(app):
-        yield
-
-
-app = FastAPI(title="ElevenLabs MCP Server", lifespan=lifespan)
+app = FastAPI(title="ElevenLabs MCP Server")
 
 
 @app.get("/health")
