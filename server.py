@@ -153,7 +153,14 @@ async def bearer_auth(request: Request, call_next):
         if MCP_TOKEN:
             auth = request.headers.get("Authorization", "")
             if not auth.startswith("Bearer ") or auth[7:] != MCP_TOKEN:
-                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+                base = str(request.base_url).rstrip("/")
+                return JSONResponse(
+                    {"error": "Unauthorized"},
+                    status_code=401,
+                    headers={
+                        "WWW-Authenticate": f'Bearer realm="{base}"',
+                    },
+                )
     return await call_next(request)
 
 
@@ -169,6 +176,16 @@ async def oauth_metadata(request: Request):
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
+    }
+
+
+@app.get("/.well-known/oauth-protected-resource")
+@app.get("/.well-known/oauth-protected-resource/mcp")
+async def oauth_protected_resource(request: Request):
+    base = str(request.base_url).rstrip("/")
+    return {
+        "resource": f"{base}/mcp",
+        "authorization_servers": [base],
     }
 
 
