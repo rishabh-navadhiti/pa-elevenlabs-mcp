@@ -136,10 +136,15 @@ def list_models() -> list:
 # FastAPI app
 # ---------------------------------------------------------------------------
 
-from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+from contextlib import asynccontextmanager
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-app = FastAPI(title="ElevenLabs MCP Server")
+@asynccontextmanager
+async def lifespan(app):
+    async with mcp.session_manager.run():
+        yield
+
+app = FastAPI(title="ElevenLabs MCP Server", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
 # Trust X-Forwarded-Proto from nginx so base_url resolves as https://
