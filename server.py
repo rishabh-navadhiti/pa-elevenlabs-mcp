@@ -18,6 +18,8 @@ from mcp.server.fastmcp import FastMCP
 
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 MCP_TOKEN = os.environ.get("MCP_TOKEN", "")
+MCP_CLIENT_ID = os.environ.get("MCP_CLIENT_ID", "")
+MCP_CLIENT_SECRET = os.environ.get("MCP_CLIENT_SECRET", "")
 ELEVEN_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
 ELEVEN_MODELS_URL = "https://api.elevenlabs.io/v1/models"
 
@@ -154,11 +156,15 @@ async def bearer_auth(request: Request, call_next):
             auth = request.headers.get("Authorization", "")
             if not auth.startswith("Bearer ") or auth[7:] != MCP_TOKEN:
                 base = str(request.base_url).rstrip("/")
+                base = str(request.base_url).rstrip("/")
                 return JSONResponse(
                     {"error": "Unauthorized"},
                     status_code=401,
                     headers={
-                        "WWW-Authenticate": f'Bearer realm="{base}"',
+                        "WWW-Authenticate": (
+                            f'Bearer realm="mcp", '
+                            f'resource_metadata="{base}/.well-known/oauth-protected-resource"'
+                        ),
                     },
                 )
     return await call_next(request)
@@ -238,6 +244,12 @@ async def token(request: Request):
     grant_type = body.get("grant_type", "")
 
     if grant_type == "client_credentials":
+        # Validate pre-configured credentials if set
+        if MCP_CLIENT_ID and MCP_CLIENT_SECRET:
+            req_id = body.get("client_id", "")
+            req_secret = body.get("client_secret", "")
+            if req_id != MCP_CLIENT_ID or req_secret != MCP_CLIENT_SECRET:
+                return JSONResponse({"error": "invalid_client"}, status_code=401)
         return {
             "access_token": MCP_TOKEN,
             "token_type": "bearer",
