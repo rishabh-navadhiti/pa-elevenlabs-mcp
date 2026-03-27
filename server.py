@@ -134,7 +134,15 @@ def list_models() -> list:
 # FastAPI app
 # ---------------------------------------------------------------------------
 
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
 app = FastAPI(title="ElevenLabs MCP Server")
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+# Trust X-Forwarded-Proto from nginx so base_url resolves as https://
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 
 # -- Auth middleware: protect /mcp with Bearer token -------------------------
