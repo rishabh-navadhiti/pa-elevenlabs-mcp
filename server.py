@@ -9,8 +9,10 @@ Environment variables:
     MCP_TOKEN           — shared secret; clients must obtain via OAuth before calling /mcp
 """
 
+import base64
 import os
 import secrets
+import tempfile
 import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -43,17 +45,23 @@ mcp = FastMCP(
 
 @mcp.tool()
 def speech_to_text(
-    file_path: str,
+    file_path: str = "",
     model_id: str = "scribe_v2",
     diarize: bool = True,
+    audio_base64: str = "",
 ) -> str:
     """
     Transcribe an audio file using ElevenLabs Scribe.
 
+    Provide either `audio_base64` (preferred when the file is on a remote machine)
+    or `file_path` (when the file is accessible on this server's filesystem).
+
     Args:
-        file_path: Absolute path to the audio file on the host machine.
-        model_id:  ElevenLabs STT model to use (default: scribe_v2).
-        diarize:   Whether to enable speaker diarization (default: True).
+        file_path:    Absolute path to the audio file on this server's filesystem.
+                      Ignored if audio_base64 is provided.
+        model_id:     ElevenLabs STT model to use (default: scribe_v2).
+        diarize:      Whether to enable speaker diarization (default: True).
+        audio_base64: Base64-encoded audio file bytes. If provided, file_path is ignored.
 
     Returns:
         Formatted markdown transcript with speaker labels, e.g.:
@@ -67,19 +75,35 @@ def speech_to_text(
             "Add it to your .env file and restart the server."
         )
 
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Audio file not found: {file_path}")
+    tmp_path = None
+    try:
+        if audio_base64:
+            audio_bytes = base64.b64decode(audio_base64)
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+                tmp.write(audio_bytes)
+                tmp_path = tmp.name
+            actual_path = tmp_path
+            filename = "audio.mp3"
+        else:
+            if not file_path:
+                raise ValueError("Either file_path or audio_base64 must be provided.")
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"Audio file not found: {file_path}")
+            actual_path = file_path
+            filename = os.path.basename(file_path)
 
-    with open(file_path, "rb") as audio_file:
-        response = requests.post(
-            ELEVEN_STT_URL,
-            headers={"xi-api-key": ELEVENLABS_API_KEY},
-            files={"file": (os.path.basename(file_path), audio_file)},
-            data={"model_id": model_id, "diarize": str(diarize).lower()},
-            timeout=300,
-        )
-
-    response.raise_for_status()
+        with open(actual_path, "rb") as audio_file:
+            response = requests.post(
+                ELEVEN_STT_URL,
+                headers={"xi-api-key": ELEVENLABS_API_KEY},
+                files={"file": (filename, audio_file)},
+                data={"model_id": model_id, "diarize": str(diarize).lower()},
+                timeout=300,
+            )
+        response.raise_for_status()
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     data = response.json()
 
     words = data.get("words", [])
